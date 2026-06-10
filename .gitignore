@@ -1,0 +1,71 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node.js
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+dist-ssr/
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tauri
+src-tauri/target/
+src-tauri/.cargo/
+src-tauri/Cargo.lock
+tauri.conf.json.backup
+src-tauri/tauri.conf.json.backup
+
+# Models (Whisper/CTranslate2 models)
+models/
+*.bin
+*.ggml*
+
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+.temp/
+
+# OS
+Thumbs.db
+ehthumbs.db
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+
+# TypeScript
+*.tsbuildinfo
