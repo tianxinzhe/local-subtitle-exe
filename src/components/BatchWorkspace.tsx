@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import type { SystemInfo, Task, GlobalConfig } from '../types'
+import type { Task, GlobalConfig, SystemInfo } from '../types'
 
 interface BatchWorkspaceProps {
   systemInfo: SystemInfo
@@ -7,29 +7,37 @@ interface BatchWorkspaceProps {
 
 const languages = [
   { code: 'zh', label: '中文' },
-  { code: 'en', label: '英语' },
-  { code: 'ja', label: '日语' },
-  { code: 'ko', label: '韩语' },
-  { code: 'fr', label: '法语' },
-  { code: 'de', label: '德语' },
+  { code: 'en', label: 'English' },
+  { code: 'ja', label: '日本語' },
+  { code: 'ko', label: '한국어' },
 ]
 
 const translationModels = [
-  { id: 'marianmt', label: 'MarianMT (中英互译)' },
-  { id: 'nllb200', label: 'NLLB-200 (多语种)' },
+  { id: 'marianmt-zh-en', label: 'MarianMT (中英互译)' },
+  { id: 'nllb-200', label: 'NLLB-200 (多语言)' },
 ]
 
-function BatchWorkspace({ systemInfo }: BatchWorkspaceProps) {
+function BatchWorkspace({}: BatchWorkspaceProps) {
   const [tasks, setTasks] = useState<Task[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
-  
+  const [currentTaskIndex, setCurrentTaskIndex] = useState(-1)
+  const [logs, setLogs] = useState<{ time: string; message: string; type: 'info' | 'success' | 'warning' | 'error' }[]>([])
+
   const [config, setConfig] = useState<GlobalConfig>({
     language: 'zh',
     precisionMode: true,
-    translationModel: 'marianmt',
+    translationModel: 'marianmt-zh-en',
     outputDir: '',
+    extractAudio: false,
+    extractSubtitle: true,
+    translateSubtitle: true,
   })
+
+  const addLog = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    setLogs(prev => [...prev, { time, message, type }])
+  }
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -44,7 +52,7 @@ function BatchWorkspace({ systemInfo }: BatchWorkspaceProps) {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    
+
     const files = Array.from(e.dataTransfer.files)
     const validFiles = files.filter(file => {
       const ext = file.name.split('.').pop()?.toLowerCase()
@@ -55,6 +63,7 @@ function BatchWorkspace({ systemInfo }: BatchWorkspaceProps) {
       id: crypto.randomUUID(),
       filename: file.name,
       fileSize: formatFileSize(file.size),
+      originalPath: (file as any).path || (file as any).webkitRelativePath || file.name,
       status: 'pending',
       progress: 0,
       eta: null,
@@ -63,22 +72,54 @@ function BatchWorkspace({ systemInfo }: BatchWorkspaceProps) {
     setTasks(prev => [...prev, ...newTasks])
   }, [])
 
+  const handleFileClick = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.mp4,.mkv,.mov,.avi,.wav,.mp3,.flac,.srt,.vtt'
+    input.multiple = true
+    input.onchange = (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || [])
+      const validFiles = files.filter(file => {
+        const ext = file.name.split('.').pop()?.toLowerCase()
+        return ['mp4', 'mkv', 'mov', 'avi', 'wav', 'mp3', 'flac', 'srt', 'vtt'].includes(ext || '')
+      })
+
+      const newTasks: Task[] = validFiles.map(file => ({
+        id: crypto.randomUUID(),
+        filename: file.name,
+        fileSize: formatFileSize(file.size),
+        originalPath: (file as any).path || (file as any).webkitRelativePath || file.name,
+        status: 'pending',
+        progress: 0,
+        eta: null,
+      }))
+
+      setTasks(prev => [...prev, ...newTasks])
+    }
+    input.click()
+  }
+
+  const handleOutputDirSelect = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.webkitdirectory = true
+    input.webkitdirectory = true
+    input.onchange = (e) => {
+      const files = (e.target as HTMLInputElement).files
+      if (files && files.length > 0) {
+        const path = files[0].webkitRelativePath || files[0].name
+        const directory = path.split('/').slice(0, -1).join('/') || files[0].name
+        setConfig(prev => ({ ...prev, outputDir: directory }))
+      }
+    }
+    input.click()
+  }
+
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  }
-
-  const getStatusLabel = (status: Task['status']): string => {
-    switch (status) {
-      case 'pending': return '等待中'
-      case 'extracting': return '提取音轨中'
-      case 'transcribing': return '听写中'
-      case 'translating': return '翻译中'
-      case 'completed': return '已完成'
-      case 'error': return '出错'
-      default: return '未知'
-    }
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
   }
 
   const getStatusColor = (status: Task['status']): string => {
@@ -87,7 +128,7 @@ function BatchWorkspace({ systemInfo }: BatchWorkspaceProps) {
       case 'extracting': return 'bg-blue-500'
       case 'transcribing': return 'bg-yellow-500'
       case 'translating': return 'bg-purple-500'
-      case 'completed': return 'bg-green-500'
+      case 'completed': return 'bg-emerald-500'
       case 'error': return 'bg-red-500'
       default: return 'bg-slate-500'
     }
@@ -99,64 +140,133 @@ function BatchWorkspace({ systemInfo }: BatchWorkspaceProps) {
 
   const startProcessing = async () => {
     if (tasks.length === 0 || isProcessing) return
-    
-    setIsProcessing(true)
-    
-    for (const task of tasks) {
-      if (task.status === 'completed' || task.status === 'error') continue
-      
-      setTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, status: 'extracting', progress: 20 } : t
-      ))
-      
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      setTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, status: 'transcribing', progress: 50 } : t
-      ))
-      
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      setTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, status: 'translating', progress: 80 } : t
-      ))
-      
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      setTasks(prev => prev.map(t => 
-        t.id === task.id ? { ...t, status: 'completed', progress: 100 } : t
-      ))
+    if (!config.extractAudio && !config.extractSubtitle && !config.translateSubtitle) return
+    if (!config.outputDir.trim()) {
+      addLog('错误：请先选择输出目录', 'error')
+      return
     }
-    
+
+    setIsProcessing(true)
+    setCurrentTaskIndex(0)
+    setLogs([])
+
+    addLog(`开始处理 ${tasks.length} 个任务...`)
+
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i]
+      setCurrentTaskIndex(i)
+
+      addLog(`正在处理: ${task.filename}`, 'info')
+      setTasks(prev => prev.map(t =>
+        t.id === task.id ? { ...t, status: 'extracting', progress: 0 } : t
+      ))
+
+      const baseName = task.filename.replace(/\.[^/.]+$/, '')
+      const outputPaths: Partial<Task['outputPaths']> = {}
+
+      if (config.extractAudio) {
+        setTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, status: 'extracting', progress: 10 } : t
+        ))
+        addLog('🔊 正在提取音频...', 'info')
+
+        await new Promise(resolve => setTimeout(resolve, 2000))
+
+        outputPaths.audio = `${config.outputDir}\\${baseName}.mp3`
+        addLog('✅ 音频提取完成', 'success')
+        setTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, progress: 25 } : t
+        ))
+      }
+
+      if (config.extractSubtitle) {
+        setTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, status: 'transcribing', progress: config.extractAudio ? 35 : 20 } : t
+        ))
+        addLog('📝 正在识别字幕...', 'info')
+
+        await new Promise(resolve => setTimeout(resolve, 3000))
+
+        outputPaths.subtitle = `${config.outputDir}\\${baseName}.srt`
+        addLog('✅ 字幕识别完成', 'success')
+        setTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, progress: config.extractAudio ? 60 : 50 } : t
+        ))
+      }
+
+      if (config.translateSubtitle) {
+        setTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, status: 'translating', progress: config.extractAudio && config.extractSubtitle ? 75 : config.extractAudio || config.extractSubtitle ? 65 : 30 } : t
+        ))
+        addLog('🌐 正在进行字幕翻译...', 'info')
+
+        await new Promise(resolve => setTimeout(resolve, 1500))
+
+        const targetLang = config.language
+        outputPaths.translatedSubtitle = `${config.outputDir}\\${baseName}.${targetLang}.srt`
+        outputPaths.bilingualSubtitle = `${config.outputDir}\\${baseName}.bilingual.srt`
+        addLog('✅ 字幕翻译完成', 'success')
+        setTasks(prev => prev.map(t =>
+          t.id === task.id ? { ...t, progress: 90 } : t
+        ))
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      setTasks(prev => prev.map(t =>
+        t.id === task.id ? { ...t, status: 'completed', progress: 100, outputPaths } : t
+      ))
+      addLog(`✅ ${task.filename} 处理完成`, 'success')
+    }
+
     setIsProcessing(false)
+    setCurrentTaskIndex(-1)
+    addLog(`所有 ${tasks.length} 个任务处理完成！`, 'success')
   }
 
   return (
-    <div className="h-full flex flex-col p-6 gap-6">
-      <div 
-        className={`flex-1 border-2 border-dashed rounded-xl flex flex-col items-center justify-center gap-4 transition-all duration-300 ${
-          isDragging 
-            ? 'border-primary-400 bg-primary-500/10' 
-            : 'border-slate-600 hover:border-slate-500 bg-slate-800/50'
-        }`}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        <div className="text-6xl">📁</div>
-        <p className="text-xl font-medium text-slate-300">拖拽音视频/字幕文件至此处</p>
-        <p className="text-slate-500">支持 MP4, MKV, MOV, WAV, MP3, SRT, VTT 等格式</p>
-        <p className="text-sm text-slate-600">最多支持 100+ 任务批量处理</p>
-      </div>
+    <div className="h-full flex flex-col">
+      <header className="h-16 bg-slate-900/50 backdrop-blur-sm border-b border-slate-800 px-6 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h2 className="text-lg font-semibold text-white">批量处理</h2>
+          {tasks.length > 0 && (
+            <span className="px-3 py-1 bg-slate-800 text-slate-400 text-xs rounded-full">
+              {tasks.length} 任务等待
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium text-slate-300 transition-colors flex items-center gap-2">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            导出全部
+          </button>
+          <button
+            onClick={startProcessing}
+            disabled={tasks.length === 0 || isProcessing || (!config.extractAudio && !config.extractSubtitle && !config.translateSubtitle)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              tasks.length === 0 || isProcessing || (!config.extractAudio && !config.extractSubtitle && !config.translateSubtitle)
+                ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                : 'bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-lg shadow-violet-500/25'
+            }`}
+          >
+            <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            {isProcessing ? '处理中...' : '开始处理'}
+          </button>
+        </div>
+      </header>
 
-      <div className="bg-slate-800 rounded-xl p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-slate-400">选择语言</label>
+      <div className="px-6 py-4 bg-slate-900/30 border-b border-slate-800">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-slate-400">目标语言</label>
             <select
               value={config.language}
               onChange={(e) => setConfig(prev => ({ ...prev, language: e.target.value }))}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary-500"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
             >
               {languages.map(lang => (
                 <option key={lang.code} value={lang.code}>{lang.label}</option>
@@ -164,38 +274,74 @@ function BatchWorkspace({ systemInfo }: BatchWorkspaceProps) {
             </select>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-slate-400">精度模式</label>
-            <div className="flex items-center gap-3">
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-slate-400">处理模式</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfig(prev => ({ ...prev, precisionMode: true }))}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  config.precisionMode
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                高精度
+              </button>
+              <button
+                onClick={() => setConfig(prev => ({ ...prev, precisionMode: false }))}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  !config.precisionMode
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                }`}
+              >
+                快速
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-slate-400">处理选项</label>
+            <div className="flex flex-wrap gap-2">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  type="radio"
-                  name="precision"
-                  checked={config.precisionMode}
-                  onChange={() => setConfig(prev => ({ ...prev, precisionMode: true }))}
-                  className="w-4 h-4 text-primary-500 bg-slate-700 border-slate-600 focus:ring-primary-500"
+                  type="checkbox"
+                  checked={config.extractAudio}
+                  onChange={(e) => setConfig(prev => ({ ...prev, extractAudio: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-violet-600 focus:ring-violet-500"
                 />
-                <span className="text-sm">高精度</span>
+                <span className="text-xs text-slate-300">提取音频</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  type="radio"
-                  name="precision"
-                  checked={!config.precisionMode}
-                  onChange={() => setConfig(prev => ({ ...prev, precisionMode: false }))}
-                  className="w-4 h-4 text-primary-500 bg-slate-700 border-slate-600 focus:ring-primary-500"
+                  type="checkbox"
+                  checked={config.extractSubtitle}
+                  onChange={(e) => setConfig(prev => ({ ...prev, extractSubtitle: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-violet-600 focus:ring-violet-500"
                 />
-                <span className="text-sm">极速</span>
+                <span className="text-xs text-slate-300">字幕提取</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={config.translateSubtitle}
+                  onChange={(e) => setConfig(prev => ({ ...prev, translateSubtitle: e.target.checked }))}
+                  className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-violet-600 focus:ring-violet-500"
+                />
+                <span className="text-xs text-slate-300">字幕翻译</span>
               </label>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-slate-400">翻译模型</label>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-slate-400">翻译模型</label>
             <select
               value={config.translationModel}
               onChange={(e) => setConfig(prev => ({ ...prev, translationModel: e.target.value }))}
-              className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-primary-500"
+              disabled={!config.translateSubtitle}
+              className={`w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500 ${
+                !config.translateSubtitle ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
               {translationModels.map(model => (
                 <option key={model.id} value={model.id}>{model.label}</option>
@@ -203,85 +349,223 @@ function BatchWorkspace({ systemInfo }: BatchWorkspaceProps) {
             </select>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-slate-400">归档目录</label>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-slate-400">输出目录</label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={config.outputDir}
                 onChange={(e) => setConfig(prev => ({ ...prev, outputDir: e.target.value }))}
-                placeholder="选择目标文件夹..."
-                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                placeholder="选择输出文件位置..."
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-violet-500"
               />
-              <button className="px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg hover:bg-slate-600 transition-colors">
-                📂
+              <button
+                onClick={handleOutputDirSelect}
+                className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                <svg className="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                </svg>
               </button>
             </div>
           </div>
         </div>
-
-        <div className="mt-4 flex justify-between items-center">
-          <div className="text-sm text-slate-400">
-            {systemInfo.gpu_available && (
-              <span className="text-green-400">🟩 GPU 加速已就绪</span>
-            )}
-            {!systemInfo.gpu_available && (
-              <span className="text-blue-400">🟦 CPU 优化模式 ({systemInfo.thread_pool_size} 线程)</span>
-            )}
-          </div>
-          <button
-            onClick={startProcessing}
-            disabled={tasks.length === 0 || isProcessing}
-            className={`px-6 py-2 rounded-lg font-medium transition-all duration-200 ${
-              tasks.length === 0 || isProcessing
-                ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                : 'bg-primary-500 hover:bg-primary-600 text-white'
-            }`}
-          >
-            {isProcessing ? '处理中...' : '▶️ 一键启动批量挂机'}
-          </button>
-        </div>
       </div>
 
-      {tasks.length > 0 && (
-        <div className="bg-slate-800 rounded-xl p-4 max-h-80 overflow-y-auto">
-          <h3 className="text-lg font-medium mb-4 text-slate-300">任务队列 ({tasks.length})</h3>
-          <div className="grid gap-3">
-            {tasks.map(task => (
-              <div key={task.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between task-card">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={`w-3 h-3 rounded-full ${getStatusColor(task.status)}`}></div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-white truncate">{task.filename}</p>
-                    <p className="text-sm text-slate-400">{task.fileSize} · {getStatusLabel(task.status)}</p>
+      <div className="flex-1 flex overflow-hidden">
+        <div className="w-80 border-r border-slate-800 flex flex-col">
+          <div className="p-4 border-b border-slate-800">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-slate-300">文件队列</h3>
+              {tasks.length > 0 && (
+                <button
+                  onClick={() => setTasks([])}
+                  className="text-xs text-slate-400 hover:text-white transition-colors"
+                >
+                  清空
+                </button>
+              )}
+            </div>
+            <div
+              className={`border-2 rounded-xl p-8 text-center transition-colors cursor-pointer ${
+                isDragging
+                  ? 'border-violet-500/50 bg-violet-500/5'
+                  : 'border-dashed border-slate-700 hover:border-slate-600'
+              }`}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onClick={handleFileClick}
+            >
+              <svg className="w-8 h-8 text-slate-500 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <p className="text-xs text-slate-500">拖拽文件或点击添加</p>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {tasks.map((task, idx) => (
+              <div
+                key={task.id}
+                className={`bg-slate-800 rounded-xl p-3 transition-all ${
+                  currentTaskIndex === idx ? 'ring-1 ring-violet-500/50' : ''
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    task.status === 'completed' ? 'bg-emerald-500/20' :
+                    task.status === 'error' ? 'bg-red-500/20' :
+                    'bg-blue-500/20'
+                  }`}>
+                    <svg className={`w-5 h-5 ${
+                      task.status === 'completed' ? 'text-emerald-400' :
+                      task.status === 'error' ? 'text-red-400' :
+                      'text-blue-400'
+                    }`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                   </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{task.filename}</p>
+                    <p className="text-xs text-slate-400">{task.fileSize}</p>
+                  </div>
+                  <div className={`w-2 h-2 rounded-full ${getStatusColor(task.status)} ${
+                    task.status === 'extracting' || task.status === 'transcribing' || task.status === 'translating' ? 'animate-pulse' : ''
+                  }`}></div>
                 </div>
-                <div className="flex items-center gap-4">
-                  {task.status !== 'completed' && task.status !== 'error' && (
-                    <>
-                      <div className="w-32">
-                        <div className="h-2 bg-slate-600 rounded-full overflow-hidden">
-                          <div 
-                            className={`h-full ${getStatusColor(task.status)} progress-bar`}
-                            style={{ width: `${task.progress}%` }}
-                          ></div>
-                        </div>
-                        <p className="text-xs text-slate-500 mt-1 text-right">{task.progress}%</p>
-                      </div>
-                    </>
-                  )}
-                  <button
-                    onClick={() => removeTask(task.id)}
-                    className="p-1 text-slate-400 hover:text-red-400 transition-colors"
-                  >
-                    ✕
-                  </button>
-                </div>
+                {task.status !== 'completed' && task.status !== 'error' && task.status !== 'pending' && (
+                  <div className="mt-2">
+                    <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${getStatusColor(task.status)} transition-all duration-300`}
+                        style={{ width: `${task.progress}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={() => removeTask(task.id)}
+                  className="mt-2 text-xs text-slate-500 hover:text-red-400 transition-colors"
+                >
+                  删除
+                </button>
               </div>
             ))}
           </div>
         </div>
-      )}
+
+        <div className="flex-1 flex flex-col p-6 overflow-hidden">
+          {currentTaskIndex >= 0 && tasks[currentTaskIndex] && (
+            <div className="bg-slate-900/50 rounded-2xl border border-slate-800 p-6 mb-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full bg-violet-500 animate-pulse"></div>
+                  <span className="text-sm font-medium text-white">正在处理</span>
+                </div>
+                <span className="text-xs text-slate-400">任务 {currentTaskIndex + 1}/{tasks.length}</span>
+              </div>
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-violet-600/20 to-purple-600/10 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-lg font-semibold text-white">{tasks[currentTaskIndex].filename}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    {config.extractAudio && (
+                      <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded">提取音频</span>
+                    )}
+                    {config.extractSubtitle && (
+                      <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">字幕识别</span>
+                    )}
+                    {config.translateSubtitle && (
+                      <span className="text-xs px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded">中英翻译</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {config.extractAudio && (
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">提取音频</span>
+                      <span className={tasks[currentTaskIndex].progress > 20 ? 'text-emerald-400' : 'text-slate-500'}>
+                        {tasks[currentTaskIndex].progress > 20 ? '完成' : '等待中'}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500" style={{ width: tasks[currentTaskIndex].progress > 20 ? '100%' : '0%' }}></div>
+                    </div>
+                  </div>
+                )}
+                {config.extractSubtitle && (
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">字幕提取</span>
+                      <span className="text-violet-400">{tasks[currentTaskIndex].progress}%</span>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-violet-500 to-purple-500 transition-all duration-500" style={{ width: `${Math.min(tasks[currentTaskIndex].progress, 70)}%` }}></div>
+                    </div>
+                  </div>
+                )}
+                {config.translateSubtitle && (
+                  <div>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">字幕翻译</span>
+                      <span className={tasks[currentTaskIndex].progress > 70 ? 'text-purple-400' : 'text-slate-500'}>
+                        {tasks[currentTaskIndex].progress > 70 ? `${tasks[currentTaskIndex].progress}%` : '等待中'}
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500" style={{ width: tasks[currentTaskIndex].progress > 70 ? `${tasks[currentTaskIndex].progress - 70}%` : '0%' }}></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex-1 bg-slate-900/50 rounded-2xl border border-slate-800 overflow-hidden">
+            <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-slate-300">处理日志</h3>
+              <button
+                onClick={() => setLogs([])}
+                className="text-xs text-slate-500 hover:text-white transition-colors"
+              >
+                清空日志
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {logs.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <svg className="w-12 h-12 mx-auto mb-2 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <p className="text-sm">暂无日志</p>
+                </div>
+              ) : (
+                logs.map((log, idx) => (
+                  <div key={idx} className="flex items-start gap-3 text-sm">
+                    <span className="text-slate-500 shrink-0">[{log.time}]</span>
+                    <span className={`${
+                      log.type === 'success' ? 'text-emerald-400' :
+                      log.type === 'warning' ? 'text-yellow-400' :
+                      log.type === 'error' ? 'text-red-400' :
+                      'text-slate-400'
+                    }`}>
+                      {log.message}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

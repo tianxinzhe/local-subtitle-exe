@@ -9,10 +9,17 @@ export interface Task {
   id: string
   filename: string
   fileSize: string
+  originalPath: string
   status: 'pending' | 'extracting' | 'transcribing' | 'translating' | 'completed' | 'error'
   progress: number
   eta: string | null
   error?: string
+  outputPaths?: {
+    audio?: string
+    subtitle?: string
+    translatedSubtitle?: string
+    bilingualSubtitle?: string
+  }
 }
 
 export interface SubtitleRow {
@@ -28,6 +35,19 @@ export interface GlobalConfig {
   precisionMode: boolean
   translationModel: string
   outputDir: string
+  extractAudio: boolean
+  extractSubtitle: boolean
+  translateSubtitle: boolean
+}
+
+export interface StoragePaths {
+  sourceFiles: string
+  audioOutput: string
+  subtitleOutput: string
+  translatedSubtitleOutput: string
+  bilingualSubtitleOutput: string
+  subtitleNaming: 'original' | 'language' | 'custom'
+  customNamePattern: string
 }
 
 export type ExportMode = 'original' | 'translated' | 'bilingual'
