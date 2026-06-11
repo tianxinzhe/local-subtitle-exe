@@ -193,3 +193,15 @@ pub async fn delete_history_record(id: i64) -> Result<(), String> {
 pub async fn clear_history() -> Result<(), String> {
   database::clear_history().map_err(|e| e.to_string())
 }
+
+#[command]
+pub async fn write_file(path: String, content: String) -> Result<(), String> {
+  use std::fs::write;
+  write(&path, content).map_err(|e| format!("Failed to write file: {}", e))
+}
+
+#[command]
+pub async fn read_file(path: String) -> Result<String, String> {
+  use std::fs::read_to_string;
+  read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))
+}

@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import type { Task, GlobalConfig, SystemInfo } from '../types'
 
 interface BatchWorkspaceProps {
@@ -164,54 +165,86 @@ function BatchWorkspace({}: BatchWorkspaceProps) {
       const baseName = task.filename.replace(/\.[^/.]+$/, '')
       const outputPaths: Partial<Task['outputPaths']> = {}
 
-      if (config.extractAudio) {
-        setTasks(prev => prev.map(t =>
-          t.id === task.id ? { ...t, status: 'extracting', progress: 10 } : t
-        ))
-        addLog('🔊 正在提取音频...', 'info')
+      try {
+        if (config.extractAudio) {
+          setTasks(prev => prev.map(t =>
+            t.id === task.id ? { ...t, status: 'extracting', progress: 10 } : t
+          ))
+          addLog('🔊 正在提取音频...', 'info')
 
-        await new Promise(resolve => setTimeout(resolve, 2000))
+          const audioOutputPath = `${config.outputDir}\\${baseName}.mp3`
+          await invoke('extract_audio', {
+            inputPath: task.originalPath,
+            outputPath: audioOutputPath,
+          })
+          
+          outputPaths.audio = audioOutputPath
+          addLog('✅ 音频提取完成', 'success')
+          setTasks(prev => prev.map(t =>
+            t.id === task.id ? { ...t, progress: 25 } : t
+          ))
+        }
 
-        outputPaths.audio = `${config.outputDir}\\${baseName}.mp3`
-        addLog('✅ 音频提取完成', 'success')
+        if (config.extractSubtitle) {
+          setTasks(prev => prev.map(t =>
+            t.id === task.id ? { ...t, status: 'transcribing', progress: config.extractAudio ? 35 : 20 } : t
+          ))
+          addLog('📝 正在识别字幕...', 'info')
+
+          const audioPath = outputPaths.audio || task.originalPath
+          const transcribeResult: { success: boolean; content: string; error?: string } = await invoke('transcribe_audio', {
+            audioPath,
+            language: config.language,
+            precisionMode: config.precisionMode,
+          })
+
+          if (transcribeResult.success && transcribeResult.content) {
+            const subtitlePath = `${config.outputDir}\\${baseName}.srt`
+            await saveStringToFile(transcribeResult.content, subtitlePath)
+            outputPaths.subtitle = subtitlePath
+            addLog('✅ 字幕识别完成', 'success')
+          } else {
+            addLog(`❌ 字幕识别失败: ${transcribeResult.error || '未知错误'}`, 'error')
+          }
+          setTasks(prev => prev.map(t =>
+            t.id === task.id ? { ...t, progress: config.extractAudio ? 60 : 50 } : t
+          ))
+        }
+
+        if (config.translateSubtitle && outputPaths.subtitle) {
+          setTasks(prev => prev.map(t =>
+            t.id === task.id ? { ...t, status: 'translating', progress: config.extractAudio && config.extractSubtitle ? 75 : config.extractAudio || config.extractSubtitle ? 65 : 30 } : t
+          ))
+          addLog('🌐 正在进行字幕翻译...', 'info')
+
+          const subtitleContent = await readFileContent(outputPaths.subtitle!)
+          const translateResult: { success: boolean; content: string; error?: string } = await invoke('translate_subtitle', {
+            content: subtitleContent,
+            srcLang: config.language,
+            targetLang: config.language === 'zh' ? 'en' : 'zh',
+            model: config.translationModel,
+          })
+
+          if (translateResult.success && translateResult.content) {
+            const targetLang = config.language === 'zh' ? 'en' : 'zh'
+            const translatedPath = `${config.outputDir}\\${baseName}.${targetLang}.srt`
+            await saveStringToFile(translateResult.content, translatedPath)
+            outputPaths.translatedSubtitle = translatedPath
+            addLog('✅ 字幕翻译完成', 'success')
+          } else {
+            addLog(`❌ 字幕翻译失败: ${translateResult.error || '未知错误'}`, 'error')
+          }
+          setTasks(prev => prev.map(t =>
+            t.id === task.id ? { ...t, progress: 90 } : t
+          ))
+        }
+      } catch (error) {
+        addLog(`❌ 处理失败: ${error}`, 'error')
         setTasks(prev => prev.map(t =>
-          t.id === task.id ? { ...t, progress: 25 } : t
+          t.id === task.id ? { ...t, status: 'error', progress: 0 } : t
         ))
+        continue
       }
-
-      if (config.extractSubtitle) {
-        setTasks(prev => prev.map(t =>
-          t.id === task.id ? { ...t, status: 'transcribing', progress: config.extractAudio ? 35 : 20 } : t
-        ))
-        addLog('📝 正在识别字幕...', 'info')
-
-        await new Promise(resolve => setTimeout(resolve, 3000))
-
-        outputPaths.subtitle = `${config.outputDir}\\${baseName}.srt`
-        addLog('✅ 字幕识别完成', 'success')
-        setTasks(prev => prev.map(t =>
-          t.id === task.id ? { ...t, progress: config.extractAudio ? 60 : 50 } : t
-        ))
-      }
-
-      if (config.translateSubtitle) {
-        setTasks(prev => prev.map(t =>
-          t.id === task.id ? { ...t, status: 'translating', progress: config.extractAudio && config.extractSubtitle ? 75 : config.extractAudio || config.extractSubtitle ? 65 : 30 } : t
-        ))
-        addLog('🌐 正在进行字幕翻译...', 'info')
-
-        await new Promise(resolve => setTimeout(resolve, 1500))
-
-        const targetLang = config.language
-        outputPaths.translatedSubtitle = `${config.outputDir}\\${baseName}.${targetLang}.srt`
-        outputPaths.bilingualSubtitle = `${config.outputDir}\\${baseName}.bilingual.srt`
-        addLog('✅ 字幕翻译完成', 'success')
-        setTasks(prev => prev.map(t =>
-          t.id === task.id ? { ...t, progress: 90 } : t
-        ))
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 500))
 
       setTasks(prev => prev.map(t =>
         t.id === task.id ? { ...t, status: 'completed', progress: 100, outputPaths } : t
@@ -221,7 +254,15 @@ function BatchWorkspace({}: BatchWorkspaceProps) {
 
     setIsProcessing(false)
     setCurrentTaskIndex(-1)
-    addLog(`所有 ${tasks.length} 个任务处理完成！`, 'success')
+    addLog(`所有 ${tasks.length} 个任务处理完成！输出文件位于: ${config.outputDir}`, 'success')
+  }
+
+  const saveStringToFile = async (content: string, filePath: string) => {
+    await invoke('write_file', { path: filePath, content })
+  }
+
+  const readFileContent = async (filePath: string): Promise<string> => {
+    return await invoke('read_file', { path: filePath })
   }
 
   return (
