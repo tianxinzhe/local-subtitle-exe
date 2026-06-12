@@ -34,8 +34,8 @@ const availableModels: Omit<ModelInfo, 'installed' | 'isDefault' | 'progress' | 
   { id: 'whisper-small', name: 'Whisper Small (466MB)', type: 'whisper', size: '466 MB' },
   { id: 'whisper-medium', name: 'Whisper Medium (1.5GB)', type: 'whisper', size: '1.5 GB' },
   { id: 'whisper-large', name: 'Whisper Large (2.9GB)', type: 'whisper', size: '2.9 GB' },
-  { id: 'marianmt-zh-en', name: 'MarianMT 中英 (40MB)', type: 'translation', size: '40 MB' },
-  { id: 'nllb-200', name: 'NLLB-200 多语言 (300MB)', type: 'translation', size: '300 MB' },
+  { id: 'onnx-marianmt-zh-en', name: 'ONNX MarianMT 中英互译 ⚡', type: 'translation', size: '40 MB' },
+  { id: 'onnx-nllb-200', name: 'ONNX NLLB-200 多语言 ⚡', type: 'translation', size: '300 MB' },
 ]
 
 function Settings({}: SettingsProps) {
@@ -293,9 +293,10 @@ function Settings({}: SettingsProps) {
                 <svg className="w-5 h-5 text-amber-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-sm text-slate-400">
-                  MarianMT 适合中英互译，NLLB-200 支持 200+ 种语言互译。
-                </p>
+                <div className="text-sm text-slate-400">
+                  <p>MarianMT 适合中英互译，NLLB-200 支持 200+ 种语言互译。</p>
+                  <p className="mt-2 text-violet-400">⚡ ONNX 模型无需 Python 环境，运行速度更快，推荐使用！</p>
+                </div>
               </div>
             </div>
           )}

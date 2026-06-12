@@ -1,4 +1,6 @@
 import { useState, useCallback } from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
 
 interface AudioFile {
   id: string
@@ -6,6 +8,7 @@ interface AudioFile {
   size: string
   duration: string
   status: 'pending' | 'extracting' | 'completed' | 'error'
+  path: string
 }
 
 function AudioExtractor() {
@@ -14,45 +17,62 @@ function AudioExtractor() {
   const [bitrate, setBitrate] = useState(192)
   const [isExtracting, setIsExtracting] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(-1)
+  const [outputDir, setOutputDir] = useState('')
 
-  const handleFilesAdded = useCallback((newFiles: File[]) => {
-    const validFiles = newFiles.filter(file => {
-      const ext = file.name.split('.').pop()?.toLowerCase()
-      return ['mp4', 'mkv', 'mov', 'avi', 'wav', 'mp3', 'flac'].includes(ext || '')
-    })
-
-    const audioFiles: AudioFile[] = validFiles.map(file => ({
-      id: crypto.randomUUID(),
-      name: file.name,
-      size: formatFileSize(file.size),
-      duration: '00:00:00',
-      status: 'pending',
-    }))
-
-    setFiles(prev => [...prev, ...audioFiles])
-  }, [])
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
-    const droppedFiles = Array.from(e.dataTransfer.files)
-    handleFilesAdded(droppedFiles)
-  }, [handleFilesAdded])
+    
+    const files = Array.from(e.dataTransfer.files)
+    const validExtensions = ['mp4', 'mkv', 'mov', 'avi', 'wav', 'mp3', 'flac']
+    
+    const audioFiles: AudioFile[] = files
+      .filter(file => {
+        const ext = file.name.split('.').pop()?.toLowerCase()
+        return ext && validExtensions.includes(ext)
+      })
+      .map(file => ({
+        id: crypto.randomUUID(),
+        name: file.name,
+        size: formatFileSize(file.size),
+        duration: '00:00:00',
+        status: 'pending',
+        path: '',
+      }))
+    
+    if (audioFiles.length > 0) {
+      setFiles(prev => [...prev, ...audioFiles])
+    }
+  }, [])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
   }, [])
 
-  const handleClickUpload = useCallback(() => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.mp4,.mkv,.mov,.avi,.wav,.mp3,.flac'
-    input.multiple = true
-    input.onchange = (e) => {
-      const selectedFiles = Array.from((e.target as HTMLInputElement).files || [])
-      handleFilesAdded(selectedFiles)
+  const handleClickUpload = useCallback(async () => {
+    const selected = await open({
+      multiple: true,
+      filters: [
+        {
+          name: 'Media Files',
+          extensions: ['mp4', 'mkv', 'mov', 'avi', 'wav', 'mp3', 'flac'],
+        },
+      ],
+      title: '选择音视频文件',
+    })
+    
+    if (selected) {
+      const filePaths = Array.isArray(selected) ? selected : [selected]
+      const audioFiles: AudioFile[] = filePaths.map((path) => ({
+        id: crypto.randomUUID(),
+        name: path.split('/').pop() || path.split('\\').pop() || path,
+        size: '未知',
+        duration: '00:00:00',
+        status: 'pending',
+        path,
+      }))
+      setFiles(prev => [...prev, ...audioFiles])
     }
-    input.click()
-  }, [handleFilesAdded])
+  }, [])
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`
@@ -67,6 +87,18 @@ function AudioExtractor() {
   const startExtraction = async () => {
     if (files.length === 0 || isExtracting) return
     
+    if (!outputDir) {
+      const selected = await open({
+        directory: true,
+        title: '选择输出目录',
+      })
+      if (selected) {
+        setOutputDir(Array.isArray(selected) ? selected[0] : selected)
+      } else {
+        return
+      }
+    }
+    
     setIsExtracting(true)
     
     for (let idx = 0; idx < files.length; idx++) {
@@ -78,11 +110,23 @@ function AudioExtractor() {
         f.id === file.id ? { ...f, status: 'extracting' } : f
       ))
       
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      setFiles(prev => prev.map(f => 
-        f.id === file.id ? { ...f, status: 'completed' } : f
-      ))
+      try {
+        await invoke('extract_audio', {
+          inputPath: file.path || file.name,
+          outputDir,
+          format,
+          bitrate,
+        })
+        
+        setFiles(prev => prev.map(f => 
+          f.id === file.id ? { ...f, status: 'completed' } : f
+        ))
+      } catch (error) {
+        console.error('Audio extraction failed:', error)
+        setFiles(prev => prev.map(f => 
+          f.id === file.id ? { ...f, status: 'error' } : f
+        ))
+      }
     }
     
     setIsExtracting(false)

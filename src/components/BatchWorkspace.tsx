@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
 import type { Task, GlobalConfig, SystemInfo } from '../types'
 
 interface BatchWorkspaceProps {
@@ -50,77 +51,72 @@ function BatchWorkspace({}: BatchWorkspaceProps) {
     setIsDragging(false)
   }, [])
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
 
-    const files = Array.from(e.dataTransfer.files)
-    const validFiles = files.filter(file => {
-      const ext = file.name.split('.').pop()?.toLowerCase()
-      return ['mp4', 'mkv', 'mov', 'avi', 'wav', 'mp3', 'flac', 'srt', 'vtt'].includes(ext || '')
+    const selected = await open({
+      multiple: true,
+      filters: [
+        {
+          name: 'Media Files',
+          extensions: ['mp4', 'mkv', 'mov', 'avi', 'wav', 'mp3', 'flac', 'srt', 'vtt'],
+        },
+      ],
+      title: '选择音视频或字幕文件',
     })
 
-    const newTasks: Task[] = validFiles.map(file => ({
-      id: crypto.randomUUID(),
-      filename: file.name,
-      fileSize: formatFileSize(file.size),
-      originalPath: (file as any).path || (file as any).webkitRelativePath || file.name,
-      status: 'pending',
-      progress: 0,
-      eta: null,
-    }))
-
-    setTasks(prev => [...prev, ...newTasks])
-  }, [])
-
-  const handleFileClick = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.mp4,.mkv,.mov,.avi,.wav,.mp3,.flac,.srt,.vtt'
-    input.multiple = true
-    input.onchange = (e) => {
-      const files = Array.from((e.target as HTMLInputElement).files || [])
-      const validFiles = files.filter(file => {
-        const ext = file.name.split('.').pop()?.toLowerCase()
-        return ['mp4', 'mkv', 'mov', 'avi', 'wav', 'mp3', 'flac', 'srt', 'vtt'].includes(ext || '')
-      })
-
-      const newTasks: Task[] = validFiles.map(file => ({
+    if (selected) {
+      const paths = Array.isArray(selected) ? selected : [selected]
+      const newTasks: Task[] = paths.map(path => ({
         id: crypto.randomUUID(),
-        filename: file.name,
-        fileSize: formatFileSize(file.size),
-        originalPath: (file as any).path || (file as any).webkitRelativePath || file.name,
+        filename: path.split('/').pop() || path.split('\\').pop() || path,
+        fileSize: '未知',
+        originalPath: path,
         status: 'pending',
         progress: 0,
         eta: null,
       }))
-
       setTasks(prev => [...prev, ...newTasks])
     }
-    input.click()
-  }
+  }, [])
 
-  const handleOutputDirSelect = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.webkitdirectory = true
-    input.webkitdirectory = true
-    input.onchange = (e) => {
-      const files = (e.target as HTMLInputElement).files
-      if (files && files.length > 0) {
-        const path = files[0].webkitRelativePath || files[0].name
-        const directory = path.split('/').slice(0, -1).join('/') || files[0].name
-        setConfig(prev => ({ ...prev, outputDir: directory }))
-      }
+  const handleFileClick = async () => {
+    const selected = await open({
+      multiple: true,
+      filters: [
+        {
+          name: 'Media Files',
+          extensions: ['mp4', 'mkv', 'mov', 'avi', 'wav', 'mp3', 'flac', 'srt', 'vtt'],
+        },
+      ],
+      title: '选择音视频或字幕文件',
+    })
+
+    if (selected) {
+      const filePaths = Array.isArray(selected) ? selected : [selected]
+      const newTasks: Task[] = filePaths.map(path => ({
+        id: crypto.randomUUID(),
+        filename: path.split('/').pop() || path.split('\\').pop() || path,
+        fileSize: '未知',
+        originalPath: path,
+        status: 'pending',
+        progress: 0,
+        eta: null,
+      }))
+      setTasks(prev => [...prev, ...newTasks])
     }
-    input.click()
   }
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  const handleOutputDirSelect = async () => {
+    const selected = await open({
+      directory: true,
+      title: '选择输出目录',
+    })
+    if (selected) {
+      const dirPath = Array.isArray(selected) ? selected[0] : selected
+      setConfig(prev => ({ ...prev, outputDir: dirPath }))
+    }
   }
 
   const getStatusColor = (status: Task['status']): string => {
@@ -172,12 +168,14 @@ function BatchWorkspace({}: BatchWorkspaceProps) {
           ))
           addLog('🔊 正在提取音频...', 'info')
 
-          const audioOutputPath = `${config.outputDir}\\${baseName}.mp3`
           await invoke('extract_audio', {
             inputPath: task.originalPath,
-            outputPath: audioOutputPath,
+            outputDir: config.outputDir,
+            format: 'mp3',
+            bitrate: 192,
           })
           
+          const audioOutputPath = `${config.outputDir}\\${baseName}.mp3`
           outputPaths.audio = audioOutputPath
           addLog('✅ 音频提取完成', 'success')
           setTasks(prev => prev.map(t =>

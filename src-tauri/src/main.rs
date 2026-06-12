@@ -4,6 +4,7 @@
 mod commands;
 mod whisper;
 mod translate;
+mod onnx_translate;
 mod ffmpeg;
 mod gpu_detect;
 mod model_downloader;

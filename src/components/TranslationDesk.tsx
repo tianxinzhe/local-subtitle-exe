@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { FixedSizeList } from 'react-window'
 import { invoke } from '@tauri-apps/api/core'
 import type { SubtitleRow } from '../types'
@@ -20,18 +20,42 @@ const languages = [
   { code: 'ru', label: 'Русский' },
 ]
 
-const translationModels = [
-  { id: 'marianmt-zh-en', label: 'MarianMT 中英互译 (40MB)' },
-  { id: 'nllb-200', label: 'NLLB-200 多语言 (300MB)' },
+const availableTranslationModels = [
+  { id: 'onnx-marianmt-zh-en', label: 'ONNX MarianMT 中英互译 ⚡', size: '40 MB' },
+  { id: 'onnx-nllb-200', label: 'ONNX NLLB-200 多语言 ⚡', size: '300 MB' },
 ]
 
 function TranslationDesk() {
   const [subtitles, setSubtitles] = useState<SubtitleRow[]>(sampleSubtitles)
   const [srcLang, setSrcLang] = useState('en')
   const [targetLang, setTargetLang] = useState('zh')
-  const [selectedModel, setSelectedModel] = useState('nllb-200')
+  const [selectedModel, setSelectedModel] = useState<string>('nllb-200')
   const [isTranslating, setIsTranslating] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [installedModels, setInstalledModels] = useState<string[]>([])
+
+  useEffect(() => {
+    loadModelConfig()
+  }, [])
+
+  const loadModelConfig = async () => {
+    try {
+      const models: string[] = await invoke('list_models')
+      setInstalledModels(models)
+      
+      const defaultModel = await invoke('get_default_translation_model') as string
+      if (defaultModel && models.includes(defaultModel)) {
+        setSelectedModel(defaultModel)
+      } else if (models.length > 0) {
+        const availableModel = availableTranslationModels.find(m => models.includes(m.id))
+        if (availableModel) {
+          setSelectedModel(availableModel.id)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load model config:', error)
+    }
+  }
 
   const handleFileSelect = () => {
     const input = document.createElement('input')
@@ -251,8 +275,10 @@ function TranslationDesk() {
               onChange={(e) => setSelectedModel(e.target.value)}
               className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-violet-500"
             >
-              {translationModels.map(model => (
-                <option key={model.id} value={model.id}>{model.label}</option>
+              {availableTranslationModels.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.label} {installedModels.includes(model.id) ? '(已安装)' : '(未安装)'}
+                </option>
               ))}
             </select>
 

@@ -64,8 +64,8 @@ pub async fn get_system_info() -> Result<SystemInfo, String> {
 }
 
 #[command]
-pub async fn extract_audio(input_path: String, output_path: String) -> Result<String, String> {
-  ffmpeg::extract_audio(&input_path, &output_path).await
+pub async fn extract_audio(input_path: String, output_dir: String, format: String, bitrate: u32) -> Result<String, String> {
+  ffmpeg::extract_audio(&input_path, &output_dir, &format, bitrate).await
 }
 
 #[command]

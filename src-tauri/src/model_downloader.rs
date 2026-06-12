@@ -16,18 +16,18 @@ const MODEL_DIR: &str = "./models";
 const CONFIG_FILE: &str = "./models/config.json";
 
 pub async fn download_model(model_name: &str, window: Option<WebviewWindow>) -> Result<(), String> {
-  let model_urls: std::collections::HashMap<&str, &str> = [
-    ("whisper-tiny", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin"),
-    ("whisper-base", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"),
-    ("whisper-small", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin"),
-    ("whisper-medium", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin"),
-    ("whisper-large", "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large.bin"),
-    ("marianmt-zh-en", "https://huggingface.co/Helsinki-NLP/opus-mt-zh-en/resolve/main/pytorch_model.bin"),
-    ("nllb-200", "https://huggingface.co/facebook/nllb-200-distilled-600M/resolve/main/pytorch_model.bin"),
+  let model_urls: std::collections::HashMap<&str, (&str, &str)> = [
+    ("whisper-tiny", ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin", ".bin")),
+    ("whisper-base", ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin", ".bin")),
+    ("whisper-small", ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin", ".bin")),
+    ("whisper-medium", ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin", ".bin")),
+    ("whisper-large", ("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large.bin", ".bin")),
+    ("onnx-marianmt-zh-en", ("https://huggingface.co/skeskinen/opus-mt-zh-en-onnx/resolve/main/model.onnx", ".onnx")),
+    ("onnx-nllb-200", ("https://huggingface.co/microsoft/nllb-200-distilled-600M-onnx/resolve/main/model.onnx", ".onnx")),
   ]
   .into();
 
-  let url = model_urls.get(model_name).ok_or_else(|| format!("Unknown model: {}", model_name))?;
+  let (url, ext) = model_urls.get(model_name).ok_or_else(|| format!("Unknown model: {}", model_name))?;
   
   fs::create_dir_all(MODEL_DIR).map_err(|e| format!("Failed to create model directory: {}", e))?;
   
@@ -37,7 +37,7 @@ pub async fn download_model(model_name: &str, window: Option<WebviewWindow>) -> 
   let total_size = response.content_length().unwrap_or(0);
   let mut downloaded = 0;
   
-  let file_path = format!("{}/{}.bin", MODEL_DIR, model_name);
+  let file_path = format!("{}/{}{}", MODEL_DIR, model_name, ext);
   let mut file = File::create(&file_path).map_err(|e| format!("Failed to create file: {}", e))?;
   let mut stream = response.bytes_stream();
   
@@ -94,6 +94,10 @@ pub async fn list_models() -> Result<Vec<String>, String> {
                 models.push(model_name.to_string());
               }
             }
+          } else if file_name.ends_with(".onnx") {
+            if let Some(model_name) = file_name.strip_suffix(".onnx") {
+              models.push(model_name.to_string());
+            }
           }
         }
       }
@@ -105,10 +109,13 @@ pub async fn list_models() -> Result<Vec<String>, String> {
 }
 
 pub async fn delete_model(model_name: &str) -> Result<(), String> {
-  let file_path = format!("{}/{}.bin", MODEL_DIR, model_name);
+  let bin_path = format!("{}/{}.bin", MODEL_DIR, model_name);
+  let onnx_path = format!("{}/{}.onnx", MODEL_DIR, model_name);
   
-  if Path::new(&file_path).exists() {
-    fs::remove_file(&file_path).map_err(|e| format!("Failed to delete model: {}", e))?;
+  if Path::new(&bin_path).exists() {
+    fs::remove_file(&bin_path).map_err(|e| format!("Failed to delete model: {}", e))?;
+  } else if Path::new(&onnx_path).exists() {
+    fs::remove_file(&onnx_path).map_err(|e| format!("Failed to delete model: {}", e))?;
   }
   
   let config = load_config().await;

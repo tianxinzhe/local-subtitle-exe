@@ -25,6 +25,8 @@ dist-ssr/
 !.vscode/settings.json
 !.vscode/tasks.json
 .idea/
+.trae/
+.agents/
 .DS_Store
 *.suo
 *.ntvs*
@@ -46,6 +48,8 @@ models/
 
 # Binaries
 bin/
+bin-temp/
+ffmpeg-temp/
 *.exe
 *.dll
 *.so
@@ -55,6 +59,9 @@ bin/
 # Temporary files
 *.tmp
 *.temp
+*.zip
+*.7z
+*.tar.xz
 .cache/
 .temp/
 
@@ -69,3 +76,6 @@ coverage/
 
 # TypeScript
 *.tsbuildinfo
+
+# Other
+skills-lock.json
