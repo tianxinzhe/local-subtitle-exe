@@ -21,8 +21,14 @@ dirs = "5.0"
 rand = "0.8"
 ort = { version = "2.0.0-rc.12", features = ["download-binaries", "fetch-models"] }
 once_cell = "1.19"
-whisper-rs = { version = "0.11", default-features = false, features = ["whisper-cpp-tracing"] }
-ffmpeg-next = "6.1"
+whisper-rs = "0.14"
+ffmpeg-sidecar = "2.5"
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
+
+[package.metadata.tauri]
+windows-target = "x86_64-pc-windows-msvc"
+
+[patch.crates-io]
+whisper-rs-sys = { path = "./whisper-rs-sys" }

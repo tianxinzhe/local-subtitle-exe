@@ -41,6 +41,18 @@ src-tauri/Cargo.lock
 tauri.conf.json.backup
 src-tauri/tauri.conf.json.backup
 
+# Tauri auto-generated schemas
+src-tauri/gen/
+
+# whisper-rs-sys: crates.io package metadata (not needed for build)
+src-tauri/whisper-rs-sys/.cargo-ok
+src-tauri/whisper-rs-sys/.cargo_vcs_info.json
+src-tauri/whisper-rs-sys/Cargo.toml.orig
+src-tauri/whisper-rs-sys/Cargo.lock
+
+# whisper-rs-sys: whisper.cpp source (downloaded from GitHub at build time)
+src-tauri/whisper-rs-sys/whisper.cpp/
+
 # Models (Whisper/CTranslate2 models)
 models/
 *.bin
